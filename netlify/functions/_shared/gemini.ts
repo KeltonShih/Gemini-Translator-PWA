@@ -149,9 +149,20 @@ function lookupSchema() {
 }
 
 function formatGeminiError(status: number, body: string) {
-  if (status === 400) return "Gemini API 請求格式或 Token 長度有問題。";
+  const apiMessage = extractGeminiErrorMessage(body);
+  if (apiMessage) return apiMessage;
+  if (status === 400) return "Gemini API 請求格式、模型名稱或 Token 長度有問題。";
   if (status === 401 || status === 403) return "Gemini API Key 無效或沒有權限。";
   if (status === 429) return "Gemini API 使用量或速率已達限制，請稍後再試。";
   if (status >= 500) return "Gemini API 目前不穩定，請稍後再試。";
-  try { return JSON.parse(body)?.error?.message || `Gemini API 錯誤：${status}`; } catch { return `Gemini API 錯誤：${status}`; }
+  return `Gemini API 錯誤：${status}`;
+}
+
+function extractGeminiErrorMessage(body: string) {
+  try {
+    const message = JSON.parse(body)?.error?.message;
+    return typeof message === "string" && message.trim() ? message : "";
+  } catch {
+    return "";
+  }
 }
