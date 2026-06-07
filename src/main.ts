@@ -72,7 +72,7 @@ const elements = {
   articleRoot: document.getElementById("articleRoot") as HTMLElement
 };
 
-const reader = new ReaderController(elements.articleRoot, setStatus, updateMode);
+const reader = new ReaderController(elements.articleRoot, setStatus, updateMode, (url) => void loadUrl(url, true));
 let currentArticle: ArticlePayload | null = null;
 let controlsCollapsed = false;
 let userToggledControls = false;
@@ -119,6 +119,7 @@ async function loadUrl(rawUrl: string, autoTranslate: boolean) {
     elements.emptyState.hidden = true;
     elements.articleRoot.hidden = false;
     elements.urlInput.value = article.sourceUrl;
+    if (typeof window.scrollTo === "function") window.scrollTo({ top: 0, behavior: "smooth" });
     await reader.loadArticle(article, autoTranslate);
     elements.clearPageBtn.disabled = false;
   } catch (error) {

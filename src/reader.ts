@@ -61,8 +61,10 @@ export class ReaderController {
   constructor(
     private readonly articleRoot: HTMLElement,
     private readonly status: (title: string, detail?: string, progress?: number) => void,
-    private readonly modeChanged: (mode: ReaderMode) => void
+    private readonly modeChanged: (mode: ReaderMode) => void,
+    private readonly navigateToArticle?: (url: string) => void
   ) {
+    this.articleRoot.addEventListener("click", (event) => this.handleArticleLinkClick(event));
     document.addEventListener("selectionchange", () => this.handleSelection());
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.dismissOverlay(true);
@@ -145,6 +147,25 @@ export class ReaderController {
   private setMode(mode: ReaderMode) {
     this.mode = mode;
     this.modeChanged(mode);
+  }
+
+  private handleArticleLinkClick(event: MouseEvent) {
+    if (!this.navigateToArticle || this.mode === "translating" || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const target = event.target instanceof Element ? event.target : null;
+    const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
+    if (!anchor || !this.articleRoot.contains(anchor)) return;
+
+    let nextUrl: URL;
+    try { nextUrl = new URL(anchor.getAttribute("href") || "", this.article?.sourceUrl || location.href); } catch { return; }
+    if (nextUrl.protocol !== "http:" && nextUrl.protocol !== "https:") return;
+
+    const currentUrl = this.article ? new URL(this.article.sourceUrl) : null;
+    if (currentUrl && nextUrl.hash && nextUrl.origin === currentUrl.origin && nextUrl.pathname === currentUrl.pathname && nextUrl.search === currentUrl.search) return;
+
+    nextUrl.hash = "";
+    event.preventDefault();
+    this.dismissOverlay(true);
+    this.navigateToArticle(nextUrl.toString());
   }
 
   private renderArticle(article: ArticlePayload) {
