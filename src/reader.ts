@@ -5,7 +5,7 @@ import type { ArticlePayload, PageCache, TranslationResult } from "./types";
 const MAX_CHUNK_CHARS = 4800;
 const MAX_CHUNK_ITEMS = 35;
 const MIN_TEXT_LENGTH = 2;
-const PROMPT_VERSION = "pwa-2026-06-07-v2";
+const PROMPT_VERSION = "pwa-2026-06-07-v3";
 const MODEL = "gemini-3.1-flash-lite";
 const TRANSLATABLE_TEXT_PATTERN = /[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF]/;
 const LOOKUP_TEXT_PATTERN = /[\p{L}\p{N}]/u;
@@ -151,7 +151,7 @@ export class ReaderController {
     this.articleRoot.innerHTML = `
       <header class="article-head">
         <p class="site-name">${escapeHtml(article.siteName)}</p>
-        <h1>${escapeHtml(article.title)}</h1>
+        <h1 class="article-title">${escapeHtml(article.title)}</h1>
         <p class="byline">${escapeHtml(article.byline || new URL(article.sourceUrl).hostname)}</p>
       </header>
       <article class="article-body">${article.contentHtml}</article>
@@ -163,21 +163,24 @@ export class ReaderController {
   private collectRecords() {
     this.records = [];
     this.blocks = [];
-    const body = this.articleRoot.querySelector(".article-body");
-    if (!body) return;
-    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
-      acceptNode: (node) => this.shouldTranslateTextNode(node as Text) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
-    });
+    const roots = Array.from(this.articleRoot.querySelectorAll(".article-title, .article-body"));
+    if (!roots.length) return;
 
     let index = 0;
-    while (walker.nextNode()) {
-      const node = walker.currentNode as Text;
-      const originalText = node.textContent || "";
-      const coreOriginal = originalText.trim();
-      const block = this.findBlock(node.parentElement || body);
-      const record = this.createRecord(node, originalText, coreOriginal, block.id, index);
-      this.records.push(record);
-      index += 1;
+    for (const root of roots) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => this.shouldTranslateTextNode(node as Text) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
+      });
+
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        const originalText = node.textContent || "";
+        const coreOriginal = originalText.trim();
+        const block = this.findBlock(node.parentElement || root);
+        const record = this.createRecord(node, originalText, coreOriginal, block.id, index);
+        this.records.push(record);
+        index += 1;
+      }
     }
   }
 
