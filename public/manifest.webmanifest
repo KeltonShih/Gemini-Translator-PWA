@@ -1,0 +1,24 @@
+{
+  "name": "Gemini Translator PWA",
+  "short_name": "Gemini 翻譯",
+  "description": "從 Android Chrome 分享公開文章網址，使用 Gemini 翻成繁體中文閱讀。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fbf8ef",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "/icons/icon-48.png", "sizes": "48x48", "type": "image/png" },
+    { "src": "/icons/icon-128.png", "sizes": "128x128", "type": "image/png" },
+    { "src": "/icons/icon-1024.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "share_target": {
+    "action": "/share-target",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}
