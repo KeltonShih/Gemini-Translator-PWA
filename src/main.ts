@@ -137,7 +137,7 @@ function updateMode(mode: string) {
   elements.translatedBtn.disabled = !currentArticle || mode === "translated" || mode === "translating";
   elements.clearPageBtn.disabled = !currentArticle || mode === "translating";
 
-  if (currentArticle && isSmallScreen() && !userToggledControls) {
+  if (currentArticle && isMobileReading() && !userToggledControls) {
     if (mode === "original" || mode === "translated") setControlsCollapsed(true);
     if (mode === "translating" || mode === "error") setControlsCollapsed(false);
   }
@@ -150,8 +150,10 @@ function setControlsCollapsed(collapsed: boolean) {
   elements.toggleControlsBtn.setAttribute("aria-expanded", String(!collapsed));
 }
 
-function isSmallScreen() {
-  return window.matchMedia("(max-width: 680px)").matches;
+function isMobileReading() {
+  return window.matchMedia("(max-width: 920px)").matches
+    || window.matchMedia("(hover: none) and (pointer: coarse)").matches
+    || /Android|Mobi|iPhone|iPad/i.test(navigator.userAgent);
 }
 
 function setStatus(title: string, detail = "", progress = 0) {

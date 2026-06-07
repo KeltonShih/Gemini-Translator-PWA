@@ -79,7 +79,7 @@ html[data-reader-mode="translated"] .article-body [data-term="true"] { font-styl
 .lookup-result dl { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 7px 10px; margin: 0; }
 .lookup-result dt { color: var(--muted); font-weight: 900; }
 .lookup-result dd { margin: 0; }
-@media (max-width: 680px) {
+@media (max-width: 920px), (hover: none) and (pointer: coarse) {
   body.has-article .controls-toggle { display: inline-flex; align-items: center; justify-content: center; }
   .control-band { padding: 10px 12px; }
   .brand-row { align-items: center; }

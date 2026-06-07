@@ -1,4 +1,4 @@
-const CACHE_NAME = "gemini-translator-pwa-shell-v1";
+const CACHE_NAME = "gemini-translator-pwa-shell-v3";
 const SHELL_ASSETS = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -13,11 +13,12 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/api/")) return;
-  event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
+
+  event.respondWith(fetch(request).then((response) => {
     if (response.ok && response.type === "basic") {
       const clone = response.clone();
       caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
     }
     return response;
-  })));
+  }).catch(() => caches.match(request).then((cached) => cached || (request.mode === "navigate" ? caches.match("/") : undefined))));
 });
