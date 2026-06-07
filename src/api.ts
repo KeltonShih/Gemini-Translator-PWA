@@ -21,7 +21,21 @@ async function postJson<T extends { ok: boolean; error?: string }>(url: string, 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload)
   });
-  const data = (await response.json()) as T;
-  if (!response.ok || !data.ok) throw new Error(data.error || "請求失敗。");
+  const rawBody = await response.text();
+  const data = parseJsonResponse<T>(response, rawBody);
+  if (!response.ok || !data.ok) throw new Error(data.error || `請求失敗（HTTP ${response.status}）。`);
   return data;
+}
+
+function parseJsonResponse<T>(response: Response, rawBody: string) {
+  try {
+    return JSON.parse(rawBody || "{}") as T;
+  } catch {
+    const looksLikeHtml = /^\s*</.test(rawBody);
+    if (looksLikeHtml) {
+      throw new Error(`翻譯服務回傳錯誤頁（HTTP ${response.status}）。高品質翻譯可能逾時，請稍後再試，或先改用快速翻譯。`);
+    }
+    const preview = rawBody.trim().slice(0, 120);
+    throw new Error(preview ? `翻譯服務回傳格式無法解析：${preview}` : `翻譯服務沒有回傳內容（HTTP ${response.status}）。`);
+  }
 }

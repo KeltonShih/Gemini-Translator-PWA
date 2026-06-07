@@ -2,8 +2,10 @@ import { lookupTerm, translateChunk } from "./api";
 import { deletePageCache, getPageCache, getTermCache, pageCacheKey, setPageCache, setTermCache, termCacheKey } from "./cache";
 import type { ArticlePayload, PageCache, TranslationResult } from "./types";
 
-const MAX_CHUNK_CHARS = 4800;
-const MAX_CHUNK_ITEMS = 35;
+const FAST_CHUNK_CHARS = 4800;
+const FAST_CHUNK_ITEMS = 35;
+const QUALITY_CHUNK_CHARS = 2200;
+const QUALITY_CHUNK_ITEMS = 14;
 const MIN_TEXT_LENGTH = 2;
 const PROMPT_VERSION = "pwa-2026-06-07-v4";
 export type TranslationQuality = "fast" | "quality";
@@ -284,10 +286,11 @@ export class ReaderController {
 
   private buildChunks() {
     const chunks: RecordItem[][] = [];
+    const limits = this.chunkLimits;
     let current: RecordItem[] = [];
     let chars = 0;
     for (const record of this.records) {
-      if (current.length && (chars + record.coreOriginal.length > MAX_CHUNK_CHARS || current.length >= MAX_CHUNK_ITEMS)) {
+      if (current.length && (chars + record.coreOriginal.length > limits.chars || current.length >= limits.items)) {
         chunks.push(current);
         current = [];
         chars = 0;
@@ -297,6 +300,12 @@ export class ReaderController {
     }
     if (current.length) chunks.push(current);
     return chunks;
+  }
+
+  private get chunkLimits() {
+    return this.translationQuality === "quality"
+      ? { chars: QUALITY_CHUNK_CHARS, items: QUALITY_CHUNK_ITEMS }
+      : { chars: FAST_CHUNK_CHARS, items: FAST_CHUNK_ITEMS };
   }
 
   private replaceRecordNode(record: RecordItem, nextNode: Node) {

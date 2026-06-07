@@ -4,6 +4,7 @@ const DEFAULT_TRANSLATION_MODEL = "gemini-3.1-flash-lite";
 const QUALITY_TRANSLATION_MODEL = "gemini-3.5-flash";
 const DEFAULT_LOOKUP_MODEL = "gemini-3.1-flash-lite";
 const TRANSLATION_REPAIR_BATCH_SIZE = 8;
+const TRANSLATION_TIMEOUT_MS = 50_000;
 const ALLOWED_TRANSLATION_MODELS = new Set([DEFAULT_TRANSLATION_MODEL, QUALITY_TRANSLATION_MODEL]);
 
 export interface TranslationSegment { id: string; text: string }
@@ -176,7 +177,7 @@ async function translateAndCollect({
     model,
     prompt: buildTranslationPrompt(segments, isRepair),
     schema: translationSchema(),
-    timeoutMs: 90_000
+    timeoutMs: TRANSLATION_TIMEOUT_MS
   });
   collectTranslations(segments, coerceTranslations(parseJsonResponse(response)), translatedById);
 }
