@@ -4,8 +4,10 @@ import type { ArticlePayload, PageCache, TranslationResult } from "./types";
 
 const FAST_CHUNK_CHARS = 4800;
 const FAST_CHUNK_ITEMS = 35;
-const QUALITY_CHUNK_CHARS = 2200;
-const QUALITY_CHUNK_ITEMS = 14;
+const FAST_UNIT_CHARS = 4800;
+const QUALITY_CHUNK_CHARS = 900;
+const QUALITY_CHUNK_ITEMS = 4;
+const QUALITY_UNIT_CHARS = 650;
 const MIN_TEXT_LENGTH = 2;
 const PROMPT_VERSION = "pwa-2026-06-07-v4";
 export type TranslationQuality = "fast" | "quality";
@@ -45,6 +47,14 @@ interface BlockItem {
   element: Element;
   originalText: string;
   translatedText: string;
+}
+
+interface TranslationUnit {
+  id: string;
+  record: RecordItem;
+  text: string;
+  partIndex: number;
+  partCount: number;
 }
 
 interface OverlayParts {
@@ -112,21 +122,30 @@ export class ReaderController {
 
     try {
       const chunks = this.buildChunks();
+      const totalUnits = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+      const translatedParts = new Map<string, string[]>();
       let completed = 0;
       for (const chunk of chunks) {
         const translations = await translateChunk(
-          chunk.map((record) => ({ id: record.id, text: record.coreOriginal })),
+          chunk.map((unit) => ({ id: unit.id, text: unit.text })),
           this.translationModel
         );
-        for (const translation of translations) {
-          const record = this.records.find((item) => item.id === translation.id);
-          if (!record) continue;
-          record.translatedCore = translation.text;
-          record.translatedText = record.prefix + translation.text + record.suffix;
+        const byId = new Map(translations.map((translation) => [translation.id, translation.text]));
+        for (const unit of chunk) {
+          const translated = byId.get(unit.id);
+          if (!translated) continue;
+          const parts = translatedParts.get(unit.record.id) || new Array<string>(unit.partCount).fill("");
+          parts[unit.partIndex] = translated;
+          translatedParts.set(unit.record.id, parts);
+          if (parts.filter(Boolean).length === unit.partCount) {
+            const translatedCore = joinText(parts);
+            unit.record.translatedCore = translatedCore;
+            unit.record.translatedText = unit.record.prefix + translatedCore + unit.record.suffix;
+          }
         }
         completed += chunk.length;
-        const progress = Math.max(8, Math.min(96, Math.round((completed / this.records.length) * 100)));
-        this.status(`正在${qualityLabel}翻譯`, `已完成 ${completed} / ${this.records.length} 個文字段。`, progress);
+        const progress = Math.max(8, Math.min(96, Math.round((completed / Math.max(totalUnits, 1)) * 100)));
+        this.status(`正在${qualityLabel}翻譯`, `已完成 ${completed} / ${totalUnits} 個翻譯小段。`, progress);
       }
 
       this.rebuildBlocks();
@@ -285,27 +304,44 @@ export class ReaderController {
   }
 
   private buildChunks() {
-    const chunks: RecordItem[][] = [];
+    const chunks: TranslationUnit[][] = [];
     const limits = this.chunkLimits;
-    let current: RecordItem[] = [];
+    let current: TranslationUnit[] = [];
     let chars = 0;
     for (const record of this.records) {
-      if (current.length && (chars + record.coreOriginal.length > limits.chars || current.length >= limits.items)) {
-        chunks.push(current);
-        current = [];
-        chars = 0;
+      for (const unit of this.createTranslationUnits(record)) {
+        if (current.length && (chars + unit.text.length > limits.chars || current.length >= limits.items)) {
+          chunks.push(current);
+          current = [];
+          chars = 0;
+        }
+        current.push(unit);
+        chars += unit.text.length;
       }
-      current.push(record);
-      chars += record.coreOriginal.length;
     }
     if (current.length) chunks.push(current);
     return chunks;
+  }
+
+  private createTranslationUnits(record: RecordItem) {
+    const parts = splitLongText(record.coreOriginal, this.unitCharLimit);
+    return parts.map((part, index) => ({
+      id: parts.length === 1 ? record.id : `${record.id}__part_${index}`,
+      record,
+      text: part,
+      partIndex: index,
+      partCount: parts.length
+    }));
   }
 
   private get chunkLimits() {
     return this.translationQuality === "quality"
       ? { chars: QUALITY_CHUNK_CHARS, items: QUALITY_CHUNK_ITEMS }
       : { chars: FAST_CHUNK_CHARS, items: FAST_CHUNK_ITEMS };
+  }
+
+  private get unitCharLimit() {
+    return this.translationQuality === "quality" ? QUALITY_UNIT_CHARS : FAST_UNIT_CHARS;
   }
 
   private replaceRecordNode(record: RecordItem, nextNode: Node) {
@@ -619,6 +655,39 @@ function mergeRanges(ranges: Array<{ start: number; end: number }>) {
 }
 
 function joinText(parts: string[]) { return parts.map((part) => part.trim()).filter(Boolean).join(" "); }
+
+function splitLongText(text: string, maxChars: number) {
+  const value = text.trim();
+  if (value.length <= maxChars) return [value];
+
+  const parts: string[] = [];
+  const sentences = value.match(/[^.!?。！？]+[.!?。！？]?|\S+/g) || [value];
+  let current = "";
+
+  for (const rawSentence of sentences) {
+    const sentence = rawSentence.trim();
+    if (!sentence) continue;
+    if (sentence.length > maxChars) {
+      if (current) {
+        parts.push(current);
+        current = "";
+      }
+      for (let index = 0; index < sentence.length; index += maxChars) {
+        parts.push(sentence.slice(index, index + maxChars).trim());
+      }
+      continue;
+    }
+    if (current && current.length + sentence.length + 1 > maxChars) {
+      parts.push(current);
+      current = sentence;
+    } else {
+      current = current ? `${current} ${sentence}` : sentence;
+    }
+  }
+
+  if (current) parts.push(current);
+  return parts.length ? parts : [value];
+}
 
 function stableHash(value: string) {
   let hash = 2166136261;

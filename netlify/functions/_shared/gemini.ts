@@ -3,8 +3,10 @@ declare const Netlify: { env: { get(name: string): string | undefined } };
 const DEFAULT_TRANSLATION_MODEL = "gemini-3.1-flash-lite";
 const QUALITY_TRANSLATION_MODEL = "gemini-3.5-flash";
 const DEFAULT_LOOKUP_MODEL = "gemini-3.1-flash-lite";
-const TRANSLATION_REPAIR_BATCH_SIZE = 8;
-const TRANSLATION_TIMEOUT_MS = 50_000;
+const TRANSLATION_REPAIR_BATCH_SIZE = 4;
+const TRANSLATION_TIMEOUT_MS = 32_000;
+const TRANSLATION_FUNCTION_BUDGET_MS = 52_000;
+const TRANSLATION_REPAIR_MIN_REMAINING_MS = 12_000;
 const ALLOWED_TRANSLATION_MODELS = new Set([DEFAULT_TRANSLATION_MODEL, QUALITY_TRANSLATION_MODEL]);
 
 export interface TranslationSegment { id: string; text: string }
@@ -36,20 +38,23 @@ export async function translateSegments(segments: TranslationSegment[], model = 
   const apiKey = getApiKey();
   const translationModel = normalizeTranslationModel(model);
   const translatedById = new Map<string, string>();
+  const deadlineAt = Date.now() + TRANSLATION_FUNCTION_BUDGET_MS;
 
-  await translateAndCollect({ apiKey, model: translationModel, segments, translatedById, isRepair: false });
+  await translateAndCollect({ apiKey, model: translationModel, segments, translatedById, isRepair: false, deadlineAt });
 
   let missing = segments.filter((segment) => !translatedById.has(segment.id));
-  if (missing.length) {
+  if (missing.length && hasTimeForRepair(deadlineAt)) {
     for (const batch of chunkSegments(missing, TRANSLATION_REPAIR_BATCH_SIZE)) {
-      await translateAndCollect({ apiKey, model: translationModel, segments: batch, translatedById, isRepair: true }).catch(() => undefined);
+      if (!hasTimeForRepair(deadlineAt)) break;
+      await translateAndCollect({ apiKey, model: translationModel, segments: batch, translatedById, isRepair: true, deadlineAt }).catch(() => undefined);
     }
   }
 
   missing = segments.filter((segment) => !translatedById.has(segment.id));
-  if (missing.length) {
+  if (missing.length && hasTimeForRepair(deadlineAt)) {
     for (const segment of missing) {
-      await translateAndCollect({ apiKey, model, segments: [segment], translatedById, isRepair: true }).catch(() => undefined);
+      if (!hasTimeForRepair(deadlineAt)) break;
+      await translateAndCollect({ apiKey, model: translationModel, segments: [segment], translatedById, isRepair: true, deadlineAt }).catch(() => undefined);
     }
   }
 
@@ -164,22 +169,34 @@ async function translateAndCollect({
   model,
   segments,
   translatedById,
-  isRepair
+  isRepair,
+  deadlineAt
 }: {
   apiKey: string;
   model: string;
   segments: TranslationSegment[];
   translatedById: Map<string, string>;
   isRepair: boolean;
+  deadlineAt: number;
 }) {
   const response = await callGemini({
     apiKey,
     model,
     prompt: buildTranslationPrompt(segments, isRepair),
     schema: translationSchema(),
-    timeoutMs: TRANSLATION_TIMEOUT_MS
+    timeoutMs: nextTranslationTimeout(deadlineAt)
   });
   collectTranslations(segments, coerceTranslations(parseJsonResponse(response)), translatedById);
+}
+
+function hasTimeForRepair(deadlineAt: number) {
+  return deadlineAt - Date.now() > TRANSLATION_REPAIR_MIN_REMAINING_MS;
+}
+
+function nextTranslationTimeout(deadlineAt: number) {
+  const remaining = deadlineAt - Date.now() - 4_000;
+  if (remaining <= 5_000) throw new Error("翻譯服務接近逾時，請稍後再試，或先改用快速翻譯。");
+  return Math.min(TRANSLATION_TIMEOUT_MS, remaining);
 }
 
 function collectTranslations(input: TranslationSegment[], output: TranslationResult[], translatedById: Map<string, string>) {
