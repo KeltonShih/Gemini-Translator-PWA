@@ -8,13 +8,16 @@ if (!app) throw new Error("App root not found.");
 
 app.innerHTML = `
   <main class="app-shell">
-    <section class="control-band">
+    <section id="controlBand" class="control-band">
       <header class="brand-row">
         <div>
           <p class="eyebrow">Gemini Translator PWA</p>
           <h1>手機繁中閱讀</h1>
         </div>
-        <span id="modePill" class="mode-pill">待命</span>
+        <div class="header-actions">
+          <span id="modePill" class="mode-pill">待命</span>
+          <button id="toggleControlsBtn" class="controls-toggle" type="button" aria-expanded="true">收合</button>
+        </div>
       </header>
       <form id="urlForm" class="url-form">
         <label for="urlInput">文章網址</label>
@@ -50,6 +53,7 @@ app.innerHTML = `
 `;
 
 const elements = {
+  controlBand: document.getElementById("controlBand") as HTMLElement,
   modePill: document.getElementById("modePill") as HTMLElement,
   form: document.getElementById("urlForm") as HTMLFormElement,
   urlInput: document.getElementById("urlInput") as HTMLInputElement,
@@ -58,6 +62,7 @@ const elements = {
   translatedBtn: document.getElementById("translatedBtn") as HTMLButtonElement,
   clearPageBtn: document.getElementById("clearPageBtn") as HTMLButtonElement,
   clearAllBtn: document.getElementById("clearAllBtn") as HTMLButtonElement,
+  toggleControlsBtn: document.getElementById("toggleControlsBtn") as HTMLButtonElement,
   statusTitle: document.getElementById("statusTitle") as HTMLElement,
   statusDetail: document.getElementById("statusDetail") as HTMLElement,
   progressWrap: document.getElementById("progressWrap") as HTMLElement,
@@ -69,6 +74,8 @@ const elements = {
 
 const reader = new ReaderController(elements.articleRoot, setStatus, updateMode);
 let currentArticle: ArticlePayload | null = null;
+let controlsCollapsed = false;
+let userToggledControls = false;
 
 registerServiceWorker();
 
@@ -90,6 +97,10 @@ elements.clearAllBtn.addEventListener("click", async () => {
   await clearAllCache();
   setStatus("已清除全部快取", "所有文章翻譯與查字快取已清除。", 0);
 });
+elements.toggleControlsBtn.addEventListener("click", () => {
+  userToggledControls = true;
+  setControlsCollapsed(!controlsCollapsed);
+});
 
 async function loadUrl(rawUrl: string, autoTranslate: boolean) {
   const url = normalizeUrl(rawUrl);
@@ -103,6 +114,8 @@ async function loadUrl(rawUrl: string, autoTranslate: boolean) {
   try {
     const article = await fetchPage(url);
     currentArticle = article;
+    userToggledControls = false;
+    document.body.classList.add("has-article");
     elements.emptyState.hidden = true;
     elements.articleRoot.hidden = false;
     elements.urlInput.value = article.sourceUrl;
@@ -123,6 +136,22 @@ function updateMode(mode: string) {
   elements.originalBtn.disabled = !currentArticle || mode !== "translated";
   elements.translatedBtn.disabled = !currentArticle || mode === "translated" || mode === "translating";
   elements.clearPageBtn.disabled = !currentArticle || mode === "translating";
+
+  if (currentArticle && isSmallScreen() && !userToggledControls) {
+    if (mode === "original" || mode === "translated") setControlsCollapsed(true);
+    if (mode === "translating" || mode === "error") setControlsCollapsed(false);
+  }
+}
+
+function setControlsCollapsed(collapsed: boolean) {
+  controlsCollapsed = collapsed;
+  elements.controlBand.classList.toggle("is-collapsed", collapsed);
+  elements.toggleControlsBtn.textContent = collapsed ? "展開" : "收合";
+  elements.toggleControlsBtn.setAttribute("aria-expanded", String(!collapsed));
+}
+
+function isSmallScreen() {
+  return window.matchMedia("(max-width: 680px)").matches;
 }
 
 function setStatus(title: string, detail = "", progress = 0) {
