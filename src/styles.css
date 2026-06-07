@@ -12,12 +12,13 @@
   font-family: "Microsoft JhengHei", "微軟正黑體", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
 }
 * { box-sizing: border-box; }
-body { margin: 0; color: var(--ink); background: var(--paper); }
-button, input { font: inherit; }
+body { margin: 0; overflow-x: hidden; color: var(--ink); background: var(--paper); }
+button, input { min-width: 0; font: inherit; }
 button { min-height: 40px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font-weight: 800; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.46; }
 button:not(:disabled):hover { border-color: var(--accent); }
 input { min-height: 42px; width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; background: white; color: var(--ink); }
+input[type="radio"] { width: auto; min-height: 0; padding: 0; }
 .app-shell { min-height: 100vh; }
 .control-band { position: sticky; top: 0; z-index: 10; padding: 16px clamp(14px, 4vw, 32px); border-bottom: 1px solid var(--line); background: rgba(251, 248, 239, 0.96); backdrop-filter: blur(12px); }
 .brand-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
@@ -28,6 +29,7 @@ body.has-article .control-band.is-collapsed { padding: 10px clamp(14px, 4vw, 32p
 body.has-article .control-band.is-collapsed .brand-row { align-items: center; }
 body.has-article .control-band.is-collapsed .eyebrow,
 body.has-article .control-band.is-collapsed .url-form,
+body.has-article .control-band.is-collapsed .quality-row,
 body.has-article .control-band.is-collapsed .actions-row,
 body.has-article .control-band.is-collapsed .status-panel { display: none; }
 body.has-article .control-band.is-collapsed h1 { max-width: min(64vw, 560px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 22px; line-height: 1.1; }
@@ -41,6 +43,15 @@ h1 { margin: 0; font-size: clamp(28px, 8vw, 46px); line-height: 1; letter-spacin
 .url-form { margin-top: 14px; }
 .url-form label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; font-weight: 800; }
 .url-row { display: grid; grid-template-columns: minmax(0, 1fr) 76px; gap: 8px; }
+.quality-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; }
+.quality-label { color: var(--muted); font-size: 13px; font-weight: 900; }
+.quality-control { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; min-width: min(100%, 260px); }
+.quality-control label { position: relative; display: block; }
+.quality-control input { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+.quality-control span { display: flex; min-width: 0; min-height: 40px; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font-weight: 900; white-space: nowrap; cursor: pointer; }
+.quality-control input:checked + span { border-color: var(--accent); background: var(--accent); color: white; }
+.quality-control input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.quality-control input:disabled + span { cursor: not-allowed; opacity: 0.46; }
 .actions-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
 .status-panel { margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 12px; }
 .status-panel p { margin: 0; }
@@ -94,6 +105,8 @@ html[data-reader-mode="translated"] .article-body [data-term="true"] { font-styl
   .brand-row { align-items: center; }
   body.has-article .control-band.is-collapsed { padding: 8px 12px; }
   body.has-article .control-band.is-collapsed h1 { max-width: 42vw; font-size: 20px; }
+  .quality-row { align-items: stretch; flex-direction: column; }
+  .quality-control { width: 100%; }
   .actions-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .actions-row button:first-child { grid-column: 1 / -1; }
   .overlay-card.has-lookup .overlay-content { display: block; }

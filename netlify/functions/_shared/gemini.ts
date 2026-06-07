@@ -1,8 +1,10 @@
 declare const Netlify: { env: { get(name: string): string | undefined } };
 
 const DEFAULT_TRANSLATION_MODEL = "gemini-3.1-flash-lite";
+const QUALITY_TRANSLATION_MODEL = "gemini-3.5-flash";
 const DEFAULT_LOOKUP_MODEL = "gemini-3.1-flash-lite";
 const TRANSLATION_REPAIR_BATCH_SIZE = 8;
+const ALLOWED_TRANSLATION_MODELS = new Set([DEFAULT_TRANSLATION_MODEL, QUALITY_TRANSLATION_MODEL]);
 
 export interface TranslationSegment { id: string; text: string }
 export interface TranslationResult { id: string; text: string }
@@ -22,18 +24,24 @@ function getApiKey() {
   return key;
 }
 
+function normalizeTranslationModel(model: string | undefined) {
+  const value = String(model || "").trim();
+  return ALLOWED_TRANSLATION_MODELS.has(value) ? value : DEFAULT_TRANSLATION_MODEL;
+}
+
 export async function translateSegments(segments: TranslationSegment[], model = DEFAULT_TRANSLATION_MODEL) {
   if (!segments.length) return [];
 
   const apiKey = getApiKey();
+  const translationModel = normalizeTranslationModel(model);
   const translatedById = new Map<string, string>();
 
-  await translateAndCollect({ apiKey, model, segments, translatedById, isRepair: false });
+  await translateAndCollect({ apiKey, model: translationModel, segments, translatedById, isRepair: false });
 
   let missing = segments.filter((segment) => !translatedById.has(segment.id));
   if (missing.length) {
     for (const batch of chunkSegments(missing, TRANSLATION_REPAIR_BATCH_SIZE)) {
-      await translateAndCollect({ apiKey, model, segments: batch, translatedById, isRepair: true }).catch(() => undefined);
+      await translateAndCollect({ apiKey, model: translationModel, segments: batch, translatedById, isRepair: true }).catch(() => undefined);
     }
   }
 

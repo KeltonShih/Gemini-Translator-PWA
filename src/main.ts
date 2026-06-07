@@ -1,8 +1,9 @@
 import { fetchPage } from "./api";
 import { clearAllCache } from "./cache";
-import { ReaderController } from "./reader";
+import { DEFAULT_TRANSLATION_QUALITY, ReaderController, TRANSLATION_QUALITY_LABELS, type TranslationQuality } from "./reader";
 import type { ArticlePayload } from "./types";
 
+const QUALITY_STORAGE_KEY = "gemini-translator-pwa.translation-quality";
 const app = document.getElementById("app");
 if (!app) throw new Error("App root not found.");
 
@@ -26,6 +27,19 @@ app.innerHTML = `
           <button id="loadBtn" type="submit">載入</button>
         </div>
       </form>
+      <div class="quality-row" aria-labelledby="qualityLabel">
+        <span id="qualityLabel" class="quality-label">翻譯品質</span>
+        <div class="quality-control" role="radiogroup" aria-labelledby="qualityLabel">
+          <label>
+            <input type="radio" name="translationQuality" value="fast" />
+            <span>快速</span>
+          </label>
+          <label>
+            <input type="radio" name="translationQuality" value="quality" />
+            <span>高品質</span>
+          </label>
+        </div>
+      </div>
       <div class="actions-row">
         <button id="translateBtn" type="button" disabled>翻譯</button>
         <button id="originalBtn" type="button" disabled>原文</button>
@@ -57,6 +71,7 @@ const elements = {
   modePill: document.getElementById("modePill") as HTMLElement,
   form: document.getElementById("urlForm") as HTMLFormElement,
   urlInput: document.getElementById("urlInput") as HTMLInputElement,
+  qualityInputs: Array.from(document.querySelectorAll<HTMLInputElement>("input[name='translationQuality']")),
   translateBtn: document.getElementById("translateBtn") as HTMLButtonElement,
   originalBtn: document.getElementById("originalBtn") as HTMLButtonElement,
   translatedBtn: document.getElementById("translatedBtn") as HTMLButtonElement,
@@ -72,7 +87,9 @@ const elements = {
   articleRoot: document.getElementById("articleRoot") as HTMLElement
 };
 
-const reader = new ReaderController(elements.articleRoot, setStatus, updateMode, (url) => void loadUrl(url, true));
+const initialTranslationQuality = getStoredTranslationQuality();
+setSelectedTranslationQuality(initialTranslationQuality);
+const reader = new ReaderController(elements.articleRoot, setStatus, updateMode, (url) => void loadUrl(url, true), initialTranslationQuality);
 let currentArticle: ArticlePayload | null = null;
 let controlsCollapsed = false;
 let userToggledControls = false;
@@ -89,6 +106,18 @@ elements.form.addEventListener("submit", (event) => {
   event.preventDefault();
   void loadUrl(elements.urlInput.value, false);
 });
+for (const input of elements.qualityInputs) {
+  input.addEventListener("change", () => {
+    if (!input.checked) return;
+    const quality = normalizeTranslationQuality(input.value);
+    storeTranslationQuality(quality);
+    void reader.setTranslationQuality(quality);
+    if (!currentArticle) {
+      setStatus(`已切換為${TRANSLATION_QUALITY_LABELS[quality]}翻譯`, "載入文章後會使用這個模式。", 0);
+    }
+  });
+}
+
 elements.translateBtn.addEventListener("click", () => void reader.translate());
 elements.originalBtn.addEventListener("click", () => reader.showOriginal());
 elements.translatedBtn.addEventListener("click", () => reader.showTranslation());
@@ -137,6 +166,9 @@ function updateMode(mode: string) {
   elements.originalBtn.disabled = !currentArticle || mode !== "translated";
   elements.translatedBtn.disabled = !currentArticle || mode === "translated" || mode === "translating";
   elements.clearPageBtn.disabled = !currentArticle || mode === "translating";
+  elements.qualityInputs.forEach((input) => {
+    input.disabled = mode === "translating";
+  });
 
   if (currentArticle && isMobileReading() && !userToggledControls) {
     if (mode === "original" || mode === "translated") setControlsCollapsed(true);
@@ -169,6 +201,35 @@ function setStatus(title: string, detail = "", progress = 0) {
 function setBusy(busy: boolean) {
   elements.form.querySelectorAll("button, input").forEach((element) => {
     (element as HTMLButtonElement | HTMLInputElement).disabled = busy;
+  });
+  elements.qualityInputs.forEach((input) => {
+    input.disabled = busy;
+  });
+}
+
+function getStoredTranslationQuality(): TranslationQuality {
+  try {
+    return normalizeTranslationQuality(localStorage.getItem(QUALITY_STORAGE_KEY));
+  } catch {
+    return DEFAULT_TRANSLATION_QUALITY;
+  }
+}
+
+function storeTranslationQuality(quality: TranslationQuality) {
+  try {
+    localStorage.setItem(QUALITY_STORAGE_KEY, quality);
+  } catch {
+    // Local storage can be unavailable in some privacy modes; the UI still works for this session.
+  }
+}
+
+function normalizeTranslationQuality(value: string | null): TranslationQuality {
+  return value === "quality" ? "quality" : DEFAULT_TRANSLATION_QUALITY;
+}
+
+function setSelectedTranslationQuality(quality: TranslationQuality) {
+  elements.qualityInputs.forEach((input) => {
+    input.checked = input.value === quality;
   });
 }
 

@@ -45,3 +45,5 @@ netlify dev
 ## Android 安裝與分享
 
 部署完成後，在 Android Chrome 開啟網站，選擇「加到主畫面」。安裝後，Chrome 分享選單會出現 Gemini Translator PWA。
+
+PWA 內可切換「快速」與「高品質」翻譯：快速使用 `gemini-3.1-flash-lite`，高品質使用 `gemini-3.5-flash`。

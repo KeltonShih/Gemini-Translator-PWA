@@ -5,8 +5,8 @@ export async function fetchPage(url: string) {
   return response.article;
 }
 
-export async function translateChunk(segments: TranslationSegment[]) {
-  const response = await postJson<{ ok: boolean; translations: TranslationResult[]; error?: string }>("/api/translate", { segments });
+export async function translateChunk(segments: TranslationSegment[], model: string) {
+  const response = await postJson<{ ok: boolean; translations: TranslationResult[]; error?: string }>("/api/translate", { segments, model });
   return response.translations;
 }
 

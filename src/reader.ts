@@ -6,7 +6,17 @@ const MAX_CHUNK_CHARS = 4800;
 const MAX_CHUNK_ITEMS = 35;
 const MIN_TEXT_LENGTH = 2;
 const PROMPT_VERSION = "pwa-2026-06-07-v4";
-const MODEL = "gemini-3.1-flash-lite";
+export type TranslationQuality = "fast" | "quality";
+export const DEFAULT_TRANSLATION_QUALITY: TranslationQuality = "fast";
+export const TRANSLATION_QUALITY_LABELS: Record<TranslationQuality, string> = {
+  fast: "快速",
+  quality: "高品質"
+};
+export const TRANSLATION_MODEL_BY_QUALITY: Record<TranslationQuality, string> = {
+  fast: "gemini-3.1-flash-lite",
+  quality: "gemini-3.5-flash"
+};
+const LOOKUP_MODEL = TRANSLATION_MODEL_BY_QUALITY.fast;
 const TRANSLATABLE_TEXT_PATTERN = /[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF]/;
 const LOOKUP_TEXT_PATTERN = /[\p{L}\p{N}]/u;
 const NON_LATIN_LOOKUP_PATTERN = /[\u0370-\u03FF\u0400-\u04FF\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF]/;
@@ -57,13 +67,16 @@ export class ReaderController {
   private blocks: BlockItem[] = [];
   private mode: ReaderMode = "idle";
   private overlay: OverlayParts | null = null;
+  private translationQuality: TranslationQuality;
 
   constructor(
     private readonly articleRoot: HTMLElement,
     private readonly status: (title: string, detail?: string, progress?: number) => void,
     private readonly modeChanged: (mode: ReaderMode) => void,
-    private readonly navigateToArticle?: (url: string) => void
+    private readonly navigateToArticle?: (url: string) => void,
+    initialTranslationQuality: TranslationQuality = DEFAULT_TRANSLATION_QUALITY
   ) {
+    this.translationQuality = initialTranslationQuality;
     this.articleRoot.addEventListener("click", (event) => this.handleArticleLinkClick(event));
     document.addEventListener("selectionchange", () => this.handleSelection());
     document.addEventListener("keydown", (event) => {
@@ -74,7 +87,7 @@ export class ReaderController {
   async loadArticle(article: ArticlePayload, autoTranslate: boolean) {
     this.dismissOverlay(true);
     this.article = article;
-    this.cacheKey = pageCacheKey(article.sourceUrl, article.sourceHash, MODEL, PROMPT_VERSION);
+    this.cacheKey = this.buildArticleCacheKey(article);
     this.renderArticle(article);
     this.setMode("original");
 
@@ -92,13 +105,17 @@ export class ReaderController {
   async translate() {
     if (!this.article || !this.records.length) return;
     this.setMode("translating");
-    this.status("正在翻譯", "正在分段送出 Gemini 翻譯。", 4);
+    const qualityLabel = TRANSLATION_QUALITY_LABELS[this.translationQuality];
+    this.status(`正在${qualityLabel}翻譯`, "正在分段送出 Gemini 翻譯。", 4);
 
     try {
       const chunks = this.buildChunks();
       let completed = 0;
       for (const chunk of chunks) {
-        const translations = await translateChunk(chunk.map((record) => ({ id: record.id, text: record.coreOriginal })));
+        const translations = await translateChunk(
+          chunk.map((record) => ({ id: record.id, text: record.coreOriginal })),
+          this.translationModel
+        );
         for (const translation of translations) {
           const record = this.records.find((item) => item.id === translation.id);
           if (!record) continue;
@@ -107,7 +124,7 @@ export class ReaderController {
         }
         completed += chunk.length;
         const progress = Math.max(8, Math.min(96, Math.round((completed / this.records.length) * 100)));
-        this.status("正在翻譯", `已完成 ${completed} / ${this.records.length} 個文字段。`, progress);
+        this.status(`正在${qualityLabel}翻譯`, `已完成 ${completed} / ${this.records.length} 個文字段。`, progress);
       }
 
       this.rebuildBlocks();
@@ -139,9 +156,37 @@ export class ReaderController {
   }
 
   async clearCurrentCache() {
-    if (!this.cacheKey) return;
-    await deletePageCache(this.cacheKey);
-    this.status("已清除本頁快取", "再次翻譯時會重新呼叫 Gemini。", 0);
+    if (!this.article) return;
+    const cacheKeys = Object.values(TRANSLATION_MODEL_BY_QUALITY).map((model) => (
+      pageCacheKey(this.article!.sourceUrl, this.article!.sourceHash, model, PROMPT_VERSION)
+    ));
+    await Promise.all(cacheKeys.map((key) => deletePageCache(key)));
+    this.cacheKey = this.buildArticleCacheKey(this.article);
+    this.status("已清除本頁快取", "快速與高品質翻譯快取都已清除。", 0);
+  }
+
+  async setTranslationQuality(quality: TranslationQuality) {
+    if (quality === this.translationQuality) return;
+    this.translationQuality = quality;
+    if (!this.article) return;
+
+    this.cacheKey = this.buildArticleCacheKey(this.article);
+    const cached = await getPageCache(this.cacheKey);
+    if (cached && this.applyCachedTranslations(cached)) {
+      this.showTranslation();
+      this.status(`已套用${TRANSLATION_QUALITY_LABELS[quality]}快取`, "這篇文章之前用此模式翻譯過，已直接套用。", 100);
+      return;
+    }
+
+    this.status(`已切換為${TRANSLATION_QUALITY_LABELS[quality]}翻譯`, "按「翻譯」會使用這個模式重新翻譯。", 0);
+  }
+
+  private get translationModel() {
+    return TRANSLATION_MODEL_BY_QUALITY[this.translationQuality];
+  }
+
+  private buildArticleCacheKey(article: ArticlePayload) {
+    return pageCacheKey(article.sourceUrl, article.sourceHash, this.translationModel, PROMPT_VERSION);
   }
 
   private setMode(mode: ReaderMode) {
@@ -307,7 +352,7 @@ export class ReaderController {
   private async saveCache() {
     if (!this.article) return;
     const translations: TranslationResult[] = this.records.map((record) => ({ id: record.id, text: record.translatedCore }));
-    await setPageCache({ key: this.cacheKey, url: this.article.sourceUrl, sourceHash: this.article.sourceHash, promptVersion: PROMPT_VERSION, model: MODEL, article: this.article, translations, savedAt: new Date().toISOString() });
+    await setPageCache({ key: this.cacheKey, url: this.article.sourceUrl, sourceHash: this.article.sourceHash, promptVersion: PROMPT_VERSION, model: this.translationModel, article: this.article, translations, savedAt: new Date().toISOString() });
   }
 
   private handleSelection() {
@@ -412,7 +457,7 @@ export class ReaderController {
     overlay.lookupButton.hidden = true;
     overlay.lookupResult.textContent = "正在查詢字詞。";
     try {
-      const cacheKey = termCacheKey(term, overlay.currentContext, MODEL);
+      const cacheKey = termCacheKey(term, overlay.currentContext, LOOKUP_MODEL);
       const cached = await getTermCache(cacheKey);
       const result = cached?.result || await lookupTerm(term, overlay.currentContext);
       if (!cached) await setTermCache(cacheKey, result);
