@@ -2,10 +2,10 @@ import { lookupTerm, translateChunk } from "./api";
 import { deletePageCache, getPageCache, getTermCache, pageCacheKey, setPageCache, setTermCache, termCacheKey } from "./cache";
 import type { ArticlePayload, PageCache, TranslationResult } from "./types";
 
-const MAX_CHUNK_CHARS = 6200;
-const MAX_CHUNK_ITEMS = 55;
+const MAX_CHUNK_CHARS = 4800;
+const MAX_CHUNK_ITEMS = 35;
 const MIN_TEXT_LENGTH = 2;
-const PROMPT_VERSION = "pwa-2026-06-07-v1";
+const PROMPT_VERSION = "pwa-2026-06-07-v2";
 const MODEL = "gemini-3.1-flash-lite";
 const TRANSLATABLE_TEXT_PATTERN = /[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF\u3040-\u30FF\u3400-\u9FFF\uAC00-\uD7AF]/;
 const LOOKUP_TEXT_PATTERN = /[\p{L}\p{N}]/u;

@@ -2,6 +2,7 @@ declare const Netlify: { env: { get(name: string): string | undefined } };
 
 const DEFAULT_TRANSLATION_MODEL = "gemini-3.1-flash-lite";
 const DEFAULT_LOOKUP_MODEL = "gemini-3.1-flash-lite";
+const TRANSLATION_REPAIR_BATCH_SIZE = 8;
 
 export interface TranslationSegment { id: string; text: string }
 export interface TranslationResult { id: string; text: string }
@@ -23,15 +24,27 @@ function getApiKey() {
 
 export async function translateSegments(segments: TranslationSegment[], model = DEFAULT_TRANSLATION_MODEL) {
   if (!segments.length) return [];
-  const response = await callGemini({
-    apiKey: getApiKey(),
-    model,
-    prompt: buildTranslationPrompt(segments),
-    schema: translationSchema(),
-    timeoutMs: 90_000
-  });
-  const parsed = parseJsonResponse(response) as { translations?: TranslationResult[] };
-  return validateTranslations(segments, parsed.translations || []);
+
+  const apiKey = getApiKey();
+  const translatedById = new Map<string, string>();
+
+  await translateAndCollect({ apiKey, model, segments, translatedById, isRepair: false });
+
+  let missing = segments.filter((segment) => !translatedById.has(segment.id));
+  if (missing.length) {
+    for (const batch of chunkSegments(missing, TRANSLATION_REPAIR_BATCH_SIZE)) {
+      await translateAndCollect({ apiKey, model, segments: batch, translatedById, isRepair: true }).catch(() => undefined);
+    }
+  }
+
+  missing = segments.filter((segment) => !translatedById.has(segment.id));
+  if (missing.length) {
+    for (const segment of missing) {
+      await translateAndCollect({ apiKey, model, segments: [segment], translatedById, isRepair: true }).catch(() => undefined);
+    }
+  }
+
+  return segments.map((segment) => ({ id: segment.id, text: translatedById.get(segment.id) || segment.text }));
 }
 
 export async function lookupTerm(term: string, context: string, model = DEFAULT_LOOKUP_MODEL) {
@@ -45,7 +58,7 @@ export async function lookupTerm(term: string, context: string, model = DEFAULT_
   return parseJsonResponse(response) as LookupResult;
 }
 
-function buildTranslationPrompt(segments: TranslationSegment[]) {
+function buildTranslationPrompt(segments: TranslationSegment[], isRepair = false) {
   return [
     "You are translating a web article into Traditional Chinese for Taiwan readers.",
     "Return JSON only. Do not include markdown.",
@@ -61,7 +74,10 @@ function buildTranslationPrompt(segments: TranslationSegment[]) {
     "- The text inside parentheses must be copied from the input segment. Never replace a Japanese, Korean, Chinese, or other non-English source term with an English canonical term unless that exact English term appears in the input.",
     "- If the input says 深層学習, write 深度學習(深層学習), not 深度學習(deep learning). If the input says ニューラルネットワーク, write 神經網路(ニューラルネットワーク), not 神經網路(neural network).",
     "- Keep the same id for each translated segment.",
+    "- Return exactly one translation item for every input segment. Do not merge, split, drop, or invent segments.",
+    `- The translations array must contain exactly ${segments.length} item(s).`,
     "- Return the translations in the same order as the input.",
+    ...(isRepair ? ["- This is a repair request for missing segments. Translate every listed id exactly once."] : []),
     "",
     "Input JSON:",
     JSON.stringify({ segments })
@@ -120,13 +136,61 @@ function parseJsonResponse(rawBody: string) {
   try { return JSON.parse(text); } catch { throw new Error("Gemini 回傳格式無法解析。"); }
 }
 
-function validateTranslations(input: TranslationSegment[], output: TranslationResult[]) {
-  if (input.length !== output.length) throw new Error("Gemini 回傳的翻譯數量不一致。");
-  return input.map((segment, index) => {
-    const translated = output[index];
-    if (!translated || translated.id !== segment.id || typeof translated.text !== "string") throw new Error("Gemini 回傳的翻譯 ID 不一致。");
-    return translated;
+async function translateAndCollect({
+  apiKey,
+  model,
+  segments,
+  translatedById,
+  isRepair
+}: {
+  apiKey: string;
+  model: string;
+  segments: TranslationSegment[];
+  translatedById: Map<string, string>;
+  isRepair: boolean;
+}) {
+  const response = await callGemini({
+    apiKey,
+    model,
+    prompt: buildTranslationPrompt(segments, isRepair),
+    schema: translationSchema(),
+    timeoutMs: 90_000
   });
+  collectTranslations(segments, coerceTranslations(parseJsonResponse(response)), translatedById);
+}
+
+function collectTranslations(input: TranslationSegment[], output: TranslationResult[], translatedById: Map<string, string>) {
+  const expectedIds = new Set(input.map((segment) => segment.id));
+
+  for (const translated of output) {
+    if (expectedIds.has(translated.id) && translated.text.trim()) translatedById.set(translated.id, translated.text);
+  }
+
+  if (output.length !== input.length) return;
+
+  output.forEach((translated, index) => {
+    const segment = input[index];
+    if (!segment || translatedById.has(segment.id) || !translated.text.trim()) return;
+    translatedById.set(segment.id, translated.text);
+  });
+}
+
+function coerceTranslations(parsed: unknown) {
+  const maybeObject = parsed as { translations?: unknown };
+  const rawTranslations = Array.isArray(maybeObject?.translations) ? maybeObject.translations : Array.isArray(parsed) ? parsed : [];
+
+  return rawTranslations.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const candidate = item as { id?: unknown; text?: unknown };
+    if (typeof candidate.text !== "string") return [];
+    return [{ id: typeof candidate.id === "string" ? candidate.id : "", text: candidate.text }];
+  });
+}
+
+function chunkSegments<T>(segments: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < segments.length; index += size) chunks.push(segments.slice(index, index + size));
+  return chunks;
 }
 
 function translationSchema() {
